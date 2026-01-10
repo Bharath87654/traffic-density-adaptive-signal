@@ -2,172 +2,224 @@ import streamlit as st
 import cv2
 import tempfile
 import time
-
+import pandas as pd
+import numpy as np
+import os
+import base64
+from datetime import datetime
 from core.detection.vehicle_detector import VehicleDetector
-from signal_control.signal_logic import SignalController
+
+# -------------------------------------------------
+# 1. PAGE CONFIG & UI STYLING (RESTORED)
+# -------------------------------------------------
+st.set_page_config(page_title="Traffic AI Pro", layout="wide", page_icon="🚦")
+
+
+def apply_global_glow(color_hex, is_emergency=False):
+    """Restored past glow logic with an added pulse for emergency priority."""
+    animation = "pulse 0.4s infinite" if is_emergency else "none"
+    st.markdown(f"""
+        <style>
+        @keyframes pulse {{
+            0% {{ background-color: rgba(255, 0, 0, 0.05); }}
+            50% {{ background-color: rgba(255, 0, 0, 0.2); }}
+            100% {{ background-color: rgba(255, 0, 0, 0.05); }}
+        }}
+        .stApp {{
+            background-color: {color_hex}05; 
+            border-top: 15px solid {color_hex};
+            animation: {animation};
+            transition: all 0.5s ease-in-out;
+        }}
+        [data-testid="stMetricValue"] {{ color: {color_hex}; }}
+        </style>
+    """, unsafe_allow_html=True)
+
+
+CSV_FILE = "analytics/vehicles.csv"
+os.makedirs("analytics", exist_ok=True)
 
 
 @st.cache_resource
 def load_assets():
-    return VehicleDetector(), SignalController()
+    return VehicleDetector()
 
 
-st.set_page_config(page_title="Smart Traffic AI", layout="wide")
-st.title("🚦 Smart Traffic AI – Adaptive Signal Control")
+detector = load_assets()
 
-detector, controller = load_assets()
+# -------------------- 2. LOGIN LOGIC (SAME AS PAST) --------------------
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
 
-st.sidebar.header("System Controls")
-
-line_pos = st.sidebar.slider(
-    "Detection Line Position (Y)",
-    min_value=0,
-    max_value=540,
-    value=450
-)
-
-conf_val = st.sidebar.slider(
-    "AI Confidence Threshold",
-    min_value=0.1,
-    max_value=1.0,
-    value=0.4
-)
-
-frame_skip = st.sidebar.slider(
-    "Frame Skip (Performance vs Accuracy)",
-    min_value=1,
-    max_value=5,
-    value=2,
-    help="1 = Highest accuracy, 5 = Highest speed"
-)
-
-if "run" not in st.session_state:
-    st.session_state.run = False
-
-if "frame_count" not in st.session_state:
-    st.session_state.frame_count = 0
-
-uploaded_file = st.file_uploader(
-    "Upload Traffic Video",
-    type=["mp4", "avi", "mov"]
-)
-
-if uploaded_file:
-
-    # Reset counters if new video is uploaded
-    new_video = (
-        "last_file" not in st.session_state
-        or st.session_state.last_file != uploaded_file.name
-    )
-
-    if st.sidebar.button("Reset Statistics") or new_video:
-        detector.vehicle_count = 0
-        detector.crossed_ids.clear()
-        detector.prev_positions.clear()
-        st.session_state.last_file = uploaded_file.name
-
-    tfile = tempfile.NamedTemporaryFile(delete=False)
-    tfile.write(uploaded_file.read())
-    tfile.flush()
-    tfile.close()
-
-    cap = cv2.VideoCapture(tfile.name)
-
-    col1, col2, col3 = st.columns(3)
-    flow_metric = col1.empty()
-    dens_metric = col2.empty()
-    time_metric = col3.empty()
-
-    video_container = st.empty()
-
-    # Start / Stop buttons
-    start_col, stop_col = st.columns(2)
-
-    if start_col.button("▶ Start Analysis"):
-        st.session_state.run = True
-
-    if stop_col.button("⏹ Stop"):
-        st.session_state.run = False
-        video_container.empty()
-        st.stop()
-
-    if st.session_state.run:
-        st.success("System running (GPU accelerated if available)")
-    else:
-        st.warning("System paused")
-
-    # =================================================
-    # 5. PROCESSING LOOP (OPTIMIZED)
-    # =================================================
-    while cap.isOpened() and st.session_state.run:
-        ret, frame = cap.read()
-        if not ret:
-            st.session_state.run = False
-            break
-
-        st.session_state.frame_count += 1
-
-        # Resize frame for speed
-        frame = cv2.resize(frame, (640, 360))
-        detector.line_y = line_pos
-
-        # -------------------------------------------------
-        # FRAME SKIPPING LOGIC
-        # -------------------------------------------------
-        if st.session_state.frame_count % frame_skip == 0:
-            detections, total_passed = detector.process_frame(
-                frame, conf_val
-            )
-            st.session_state.last_detections = detections
-            st.session_state.last_total = total_passed
+if not st.session_state.logged_in:
+    st.title("🔐 Secure Login")
+    u = st.text_input("Username")
+    p = st.text_input("Password", type="password")
+    if st.button("Login"):
+        if u == "admin" and p == "password":
+            st.session_state.logged_in = True
+            st.rerun()
         else:
-            detections = st.session_state.get("last_detections", [])
-            total_passed = st.session_state.get(
-                "last_total", detector.vehicle_count
-            )
+            st.error("Invalid credentials")
+    st.stop()
 
-        green_time = controller.get_adaptive_timing(len(detections))
+# -------------------------------------------------
+# 3. SESSION STATE INIT
+# -------------------------------------------------
+if "run" not in st.session_state: st.session_state.run = False
+# Essential for cumulative counting
+if "ids" not in st.session_state: st.session_state.ids = set()
+if "signal_color" not in st.session_state: st.session_state.signal_color = "#2ecc71"
 
-        # =================================================
-        # VISUALIZATION
-        # =================================================
-        cv2.line(
-            frame,
-            (0, line_pos),
-            (frame.shape[1], line_pos),
-            (0, 255, 255),
-            2
-        )
+# -------------------------------------------------
+# 4. MAIN INTERFACE (RESTORED PAST UI)
+# -------------------------------------------------
+st.sidebar.header("🎛 System Controls")
+if st.sidebar.button("🚪 Logout"):
+    st.session_state.logged_in = False
+    st.rerun()
 
-        for d in detections:
-            x1, y1, x2, y2 = map(int, d["box"])
-            cx, cy = d["centroid"]
+conf_val = st.sidebar.slider("AI Confidence", 0.1, 1.0, 0.35)
+frame_skip = st.sidebar.slider("Frame Skip", 1, 10, 2)
+clearance_rate = st.sidebar.number_input("Sec/Vehicle", value=2.5)
 
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            cv2.circle(frame, (cx, cy), 4, (0, 0, 255), -1)
-            cv2.putText(
-                frame,
-                f"ID:{d['id']}",
-                (x1, y1 - 5),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.4,
-                (0, 255, 0),
-                1
-            )
+uploaded_file = st.sidebar.file_uploader("Upload Traffic Video", type=["mp4", "avi", "mov"])
 
-        # Update Streamlit UI
-        video_container.image(
-            frame,
-            channels="BGR",
-            use_container_width=True,
-            clamp=True
-        )
+st.title("🚦 Traffic Density Analysis & Adaptive Signal Control")
+apply_global_glow(st.session_state.signal_color)
 
-        flow_metric.metric("Vehicles Passed (Flow)", total_passed)
-        dens_metric.metric("Active Density", len(detections))
-        time_metric.metric("Green Signal Time", f"{green_time}s")
+tab1, tab2, tab3 = st.tabs(["🚥 Live Traffic", "📊 Analytics", "🧠 System Info"])
 
-        # Throttle UI updates
-        time.sleep(0.03)
+# ======================================================
+# TAB 1: LIVE TRAFFIC
+# ======================================================
+with tab1:
+    if not uploaded_file:
+        st.info("Please upload a video file in the sidebar to begin.")
+    else:
+        col_video, col_metrics = st.columns([2, 1])
 
-    cap.release()
+        with col_video:
+            video_placeholder = st.empty()
+            c1, c2 = st.columns(2)
+            if c1.button("▶ Start Analysis", use_container_width=True):
+                st.session_state.run = True
+                st.session_state.ids = set()  # Clear previous run counts
+
+            if c2.button("⏹ Stop & Save", use_container_width=True):
+                st.session_state.run = False
+                total_unique = len(st.session_state.ids)
+
+                # Logic: Save exactly 4 columns to match the header
+                log_entry = {
+                    "Date": datetime.now().strftime("%Y-%m-%d"),
+                    "Time": datetime.now().strftime("%H:%M:%S"),
+                    "Total_Vehicles": total_unique,
+                    "Signal_Time_Sec": round(total_unique * clearance_rate, 2)
+                }
+                pd.DataFrame([log_entry]).to_csv(CSV_FILE, mode='a', index=False, header=not os.path.exists(CSV_FILE))
+                st.success(f"✅ Data Logged! Total Unique Vehicles: {total_unique}")
+
+        with col_metrics:
+            st.subheader("📌 Live Metrics")
+            dens_m = st.empty()
+            total_m = st.empty()
+            status_box = st.empty()
+
+        if st.session_state.run:
+            tfile = tempfile.NamedTemporaryFile(delete=False)
+            tfile.write(uploaded_file.read())
+            cap = cv2.VideoCapture(tfile.name)
+            frame_counter = 0
+
+            while cap.isOpened() and st.session_state.run:
+                ret, frame = cap.read()
+                if not ret: break
+                frame_counter += 1
+
+                if frame_counter % frame_skip == 0:
+                    detections, is_emergency = detector.process_frame(frame, conf_val)
+
+                    # Logic for counting unique vehicles
+                    norm_count = 0
+                    for d in detections:
+                        if d["type"] == "normal":
+                            norm_count += 1
+                            st.session_state.ids.add(d["id"])
+
+                    # Update Signal Color Priority
+                    if is_emergency:
+                        st.session_state.signal_color = "#FF0000"
+                        status_box.error("🚨 EMERGENCY VEHICLE DETECTED")
+                    else:
+                        if norm_count > 15:
+                            st.session_state.signal_color = "#e74c3c"
+                        elif norm_count > 5:
+                            st.session_state.signal_color = "#f1c40f"
+                        else:
+                            st.session_state.signal_color = "#2ecc71"
+
+                        if norm_count > 15:
+                            status_box.error("🔴 RED – High Density")
+                        elif norm_count > 5:
+                            status_box.warning("🟡 YELLOW – Medium Density")
+                        else:
+                            status_box.success("🟢 GREEN – Low Density")
+
+                    apply_global_glow(st.session_state.signal_color, is_emergency)
+
+                    dens_m.metric("🚗 Frame Density", norm_count)
+                    total_m.metric("📈 Cumulative Total", len(st.session_state.ids))
+                    st.session_state.last_detections = detections
+                else:
+                    detections = st.session_state.get("last_detections", [])
+
+                # Drawing Boxes scaled correctly
+                display_frame = cv2.resize(frame, (854, 480))
+                scale_x, scale_y = 854 / frame.shape[1], 480 / frame.shape[0]
+
+                for d in detections:
+                    x1, y1, x2, y2 = d["box"]
+                    box_color = (0, 0, 255) if d["type"] == "emergency" else (0, 255, 0)
+                    cv2.rectangle(display_frame, (int(x1 * scale_x), int(y1 * scale_y)),
+                                  (int(x2 * scale_x), int(y2 * scale_y)), box_color, 2)
+
+                video_placeholder.image(cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB), use_container_width=True)
+                time.sleep(0.01)
+            cap.release()
+
+# ======================================================
+# TAB 2: ANALYTICS (FIXED FOR PARSERERROR)
+# ======================================================
+with tab2:
+    st.subheader("📊 Historical Traffic Comparison")
+    if os.path.exists(CSV_FILE):
+        try:
+            # Skip rows that don't match the column count to avoid ParserError
+            df = pd.read_csv(CSV_FILE, on_bad_lines='skip')
+
+            if not df.empty:
+                df['Execution'] = df['Date'] + " " + df['Time']
+                st.write("### Total Vehicles Per Execution Cycle")
+                st.bar_chart(df.set_index("Execution")["Total_Vehicles"])
+
+                st.divider()
+                st.write("### 📜 Raw Execution History")
+                st.dataframe(df, use_container_width=True)
+            else:
+                st.info("No data in CSV yet.")
+        except Exception as e:
+            st.error(f"Error reading history: {e}")
+    else:
+        st.info("No data available. Complete an analysis run to see charts.")
+
+# ======================================================
+# TAB 3: SYSTEM INFO
+# ======================================================
+with tab3:
+    st.markdown("""
+    **Accuracy & Logic:**
+    * **ID Persistence:** Uses ByteTrack IDs to ensure a vehicle is only counted once for the entire video run.
+    * **Dynamic Scaling:** Bounding boxes are scaled from original video resolution to UI display resolution.
+    * **Error Resiliency:** The CSV loader skips corrupt lines to ensure the Analytics tab always works.
+    """)

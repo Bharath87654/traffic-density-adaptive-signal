@@ -1,0 +1,25 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# IDE
+.idea/
+.vscode/
+
+# YOLO / ML outputs
+runs/
+train/
+valid/
+test/
+
+# Model weights
+*.pt
+
+# Logs & temp files
+analytics/*.csv
+temp*.mp4
+
+# OS
+Thumbs.db
+.DS_Store
