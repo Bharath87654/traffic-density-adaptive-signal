@@ -1,12 +1,20 @@
+import sys
+import os
+
+# --- UPDATED FIX FOR backend/app.py location ---
+# This tells Python to look in the parent folder (root) to find 'core'
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import streamlit as st
 import cv2
 import tempfile
 import time
 import pandas as pd
 import numpy as np
-import os
 import base64
 from datetime import datetime
+
+# Now this will work even though app.py is inside /backend
 from core.detection.vehicle_detector import VehicleDetector
 
 # -------------------------------------------------
@@ -36,8 +44,12 @@ def apply_global_glow(color_hex, is_emergency=False):
     """, unsafe_allow_html=True)
 
 
-CSV_FILE = "analytics/vehicles.csv"
-os.makedirs("analytics", exist_ok=True)
+# -------------------------------------------------
+# SAFE CSV PATH (CLOUD + LOCAL)
+# -------------------------------------------------
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CSV_FILE = os.path.join(BASE_DIR, "analytics", "vehicles.csv")
+os.makedirs(os.path.dirname(CSV_FILE), exist_ok=True)
 
 
 @st.cache_resource
@@ -110,14 +122,18 @@ with tab1:
                 st.session_state.run = False
                 total_unique = len(st.session_state.ids)
 
-                # Logic: Save exactly 4 columns to match the header
                 log_entry = {
                     "Date": datetime.now().strftime("%Y-%m-%d"),
                     "Time": datetime.now().strftime("%H:%M:%S"),
                     "Total_Vehicles": total_unique,
                     "Signal_Time_Sec": round(total_unique * clearance_rate, 2)
                 }
-                pd.DataFrame([log_entry]).to_csv(CSV_FILE, mode='a', index=False, header=not os.path.exists(CSV_FILE))
+                pd.DataFrame([log_entry]).to_csv(
+                    CSV_FILE,
+                    mode='a',
+                    index=False,
+                    header=not os.path.exists(CSV_FILE)
+                )
                 st.success(f"✅ Data Logged! Total Unique Vehicles: {total_unique}")
 
         with col_metrics:
@@ -127,27 +143,29 @@ with tab1:
             status_box = st.empty()
 
         if st.session_state.run:
-            tfile = tempfile.NamedTemporaryFile(delete=False)
-            tfile.write(uploaded_file.read())
-            cap = cv2.VideoCapture(tfile.name)
+            # ---------------- SAFE TEMP VIDEO HANDLING ----------------
+            with tempfile.NamedTemporaryFile(delete=False) as tfile:
+                tfile.write(uploaded_file.read())
+                video_path = tfile.name
+
+            cap = cv2.VideoCapture(video_path)
             frame_counter = 0
 
             while cap.isOpened() and st.session_state.run:
                 ret, frame = cap.read()
-                if not ret: break
+                if not ret:
+                    break
                 frame_counter += 1
 
                 if frame_counter % frame_skip == 0:
                     detections, is_emergency = detector.process_frame(frame, conf_val)
 
-                    # Logic for counting unique vehicles
                     norm_count = 0
                     for d in detections:
                         if d["type"] == "normal":
                             norm_count += 1
                             st.session_state.ids.add(d["id"])
 
-                    # Update Signal Color Priority
                     if is_emergency:
                         st.session_state.signal_color = "#FF0000"
                         status_box.error("🚨 EMERGENCY VEHICLE DETECTED")
@@ -174,18 +192,27 @@ with tab1:
                 else:
                     detections = st.session_state.get("last_detections", [])
 
-                # Drawing Boxes scaled correctly
                 display_frame = cv2.resize(frame, (854, 480))
-                scale_x, scale_y = 854 / frame.shape[1], 480 / frame.shape[0]
+                scale_x = 854 / frame.shape[1]
+                scale_y = 480 / frame.shape[0]
 
                 for d in detections:
                     x1, y1, x2, y2 = d["box"]
-                    box_color = (0, 0, 255) if d["type"] == "emergency" else (0, 255, 0)
-                    cv2.rectangle(display_frame, (int(x1 * scale_x), int(y1 * scale_y)),
-                                  (int(x2 * scale_x), int(y2 * scale_y)), box_color, 2)
+                    color = (0, 0, 255) if d["type"] == "emergency" else (0, 255, 0)
+                    cv2.rectangle(
+                        display_frame,
+                        (int(x1 * scale_x), int(y1 * scale_y)),
+                        (int(x2 * scale_x), int(y2 * scale_y)),
+                        color,
+                        2
+                    )
 
-                video_placeholder.image(cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB), use_container_width=True)
+                video_placeholder.image(
+                    cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB),
+                    use_container_width=True
+                )
                 time.sleep(0.01)
+
             cap.release()
 
 # ======================================================
@@ -195,9 +222,7 @@ with tab2:
     st.subheader("📊 Historical Traffic Comparison")
     if os.path.exists(CSV_FILE):
         try:
-            # Skip rows that don't match the column count to avoid ParserError
             df = pd.read_csv(CSV_FILE, on_bad_lines='skip')
-
             if not df.empty:
                 df['Execution'] = df['Date'] + " " + df['Time']
                 st.write("### Total Vehicles Per Execution Cycle")
