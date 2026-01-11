@@ -3,11 +3,10 @@ import cv2
 import tempfile
 import time
 import pandas as pd
-import numpy as np
 import os
 import matplotlib.pyplot as plt
 from datetime import datetime
-from core.detection.vehicle_detector import VehicleDetector
+from core.detection import VehicleDetector
 from signal_control.signal_logic import SignalController
 
 # -------------------------------------------------
