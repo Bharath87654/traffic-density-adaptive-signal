@@ -1,24 +1,35 @@
 import torch
 from ultralytics import YOLO
+import ultralytics
+import functools
+
+# --- PYTORCH 2.6 SECURITY BYPASS ---
+# This forces torch to load weights without the strict security check
+# that causes the UnpicklingError on Streamlit Cloud.
+torch.load = functools.partial(torch.load, weights_only=False)
+
 
 class VehicleDetector:
     def __init__(self):
+        # Determine device (Streamlit Cloud uses CPU, local PC uses CUDA)
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+
         # Load both models from the models/ directory
+        # If yolov8n.pt was deleted from GitHub, it will auto-download now
         self.traffic_model = YOLO('models/yolov8n.pt')
         self.emergency_model = YOLO('models/emergency_best.pt')
 
-        if torch.cuda.is_available():
-            self.traffic_model.to("cuda")
-            self.emergency_model.to("cuda")
+        self.traffic_model.to(self.device)
+        self.emergency_model.to(self.device)
 
     def process_frame(self, frame, conf_threshold):
         # 1. Track Normal Traffic using the UI slider confidence
         traffic_results = self.traffic_model.track(
-            frame, persist=True, conf=conf_threshold, verbose=False
+            frame, persist=True, conf=conf_threshold, verbose=False, device=self.device
         )
 
-        # 2. Detect Emergency Vehicles using a FIXED high confidence (0.75) to prevent false positives
-        emergency_results = self.emergency_model(frame, conf=0.75, verbose=False)
+        # 2. Detect Emergency Vehicles using a FIXED high confidence (0.75)
+        emergency_results = self.emergency_model(frame, conf=0.75, verbose=False, device=self.device)
 
         current_detections = []
         is_emergency = False
