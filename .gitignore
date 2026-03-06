@@ -1,32 +1,27 @@
 # Python
-.venv/
 __pycache__/
 *.pyc
+.venv/
 
 # IDE
 .idea/
-.vscode/
 
-# YOLO / ML outputs
+# YOLO training data
 runs/
 train/
 valid/
 test/
 
-# Model weights
-*.pt
-
-# Runtime data (DO NOT COMMIT)
-backend/analytics/
+# outputs
 backend/output/
 backend/sounds/
-backend/users.json
-backend/vehicles.csv
 
-# Logs & temp files
-analytics/*.csv
-temp*.mp4
+# node
+node_modules/
 
-# OS
-Thumbs.db
-.DS_Store
+# duplicate frontend
+traffic-dashboard/
+
+# datasets
+*.csv
+*.json

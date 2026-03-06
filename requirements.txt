@@ -1,7 +1,7 @@
-streamlit
-opencv-python-headless
+fastapi
+uvicorn
 ultralytics
-pandas
+opencv-python
 numpy
-torch
-torchvision
+pandas
+python-dotenv
