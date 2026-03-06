@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+@theme {
+  --color-traffic-navy: #0a0e1a;
+  --color-traffic-green: #00ff88;
+  --color-traffic-red: #ff4d4d;
+  --color-traffic-yellow: #ffcc00;
+  --color-traffic-border: #1e293b;
+
+  --shadow-glow-green: 0 0 15px rgba(0, 255, 136, 0.4);
+  --shadow-glow-red: 0 0 15px rgba(255, 77, 77, 0.4);
+
+  --animate-pulse-slow: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+
+
+@layer base {
+  body {
+    @apply bg-traffic-navy text-slate-200 antialiased overflow-hidden selection:bg-traffic-green/30;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+}
+
+@layer components {
+  .dashboard-card {
+    @apply bg-[#111827]/80 backdrop-blur-md border border-traffic-border rounded-xl shadow-lg;
+  }
+  
+  .glow-border-green {
+    @apply border-traffic-green/50 shadow-glow-green;
+  }
+  
+  .glow-border-red {
+    @apply border-traffic-red/50 shadow-glow-red;
+  }
+
+  .neon-text-green {
+    @apply text-traffic-green drop-shadow-[0_0_8px_rgba(0,255,136,0.6)];
+  }
+
+  .neon-text-red {
+    @apply text-traffic-red drop-shadow-[0_0_8px_rgba(255,77,77,0.6)];
+  }
+}
+
+/* Custom JetBrains Mono font simulation if not available */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/jetbrainsmono/v18/t64vRet60BER4EG9rb3fbeZVeCMGZNDS6_x_87mX.woff2) format('woff2');
+}
